@@ -1,3 +1,26 @@
+use std::{
+    env,
+};
+
+// =============================================================================================
+
+const USAGE: &str = "Usage: duplicates_resolver <path> --threads=<count>";
+
+// =============================================================================================
+
 fn main() {
-    println!("Hello, world!");
+    let mut args = env::args();
+
+    let path = args.nth(1).expect(&format!("\nNo path provided.\n{}\n", USAGE));
+    let threads_arg = args.next()
+        .expect(&format!("\nNo threads count provided.\n{}\n", USAGE));
+    
+    let threads_count: u8 = threads_arg
+        .trim()
+        .strip_prefix("--threads=")
+        .expect(&format!("\nNo threads count provided\n{}\n", USAGE))
+        .parse()
+        .expect("Threads count must be a number");
+
+    println!("Scanning (with {threads_count} threads) for duplicates in '{path}'");
 }

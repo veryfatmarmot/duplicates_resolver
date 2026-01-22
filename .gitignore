@@ -1,5 +1,6 @@
 # Cargo / build
 target/
+test_data/
 **/*.rs.bk
 
 # If this is a library crate, uncomment to ignore Cargo.lock
