@@ -1,3 +1,6 @@
+[workspace]
+members = ["libs/utils"]
+
 [package]
 name = "duplicates_resolver"
 version = "0.1.0"
@@ -7,3 +10,4 @@ edition = "2024"
 anyhow = "1.0.100"
 rayon = "1.11.0"
 walkdir = "2.5.0"
+utils = { path = "libs/utils" }

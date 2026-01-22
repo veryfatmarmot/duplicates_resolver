@@ -16,6 +16,7 @@ type DuplicatesCollection = HashMap<String, Vec<FileDescr>>;
 struct FileDescr {
     relative_folder_path: String,
     file_name: String,
+    file_size: u64,
 }
 
 // =============================================================================================
@@ -24,12 +25,13 @@ pub fn resolve_duplicates(root_path: &str, threads_count: u8) {
     println!("Scanning (with {threads_count} threads) for duplicates in '{root_path}'");
 
     let collection = collect_files(root_path, threads_count);
+    println!("Total files count:{}", collection.len());
 
     // leave duplicates only
     let collection: DuplicatesCollection = collection
         .into_iter()
         .filter(|(_, paths)| paths.len() > 1)
-        .map(|(_size, paths)| {
+        .map(|(size, paths)| {
             let mut duplicates: Vec<FileDescr> = paths.into_iter()
             .map(|path| {
                 let file_name = path.file_name().unwrap().to_string_lossy().to_string();
@@ -37,16 +39,18 @@ pub fn resolve_duplicates(root_path: &str, threads_count: u8) {
                     .unwrap()
                     .to_string_lossy()
                     .to_string();
-                FileDescr {relative_folder_path, file_name}
+                let relative_folder_path = relative_folder_path.replace('\\', "/");
+                FileDescr {relative_folder_path, file_name, file_size: size}
             }).collect();
 
             duplicates.sort_by(|a, b| a.relative_folder_path.cmp(&b.relative_folder_path));
 
-            (duplicates[0].file_name.clone(), duplicates)
+            (duplicates[0].relative_folder_path.clone(), duplicates)
         })
         .collect();    
 
     println!("Collection:\n{:#?}", collection);
+    println!("Duplicates count:{}", collection.len());
 }
 
 fn collect_files(root_path: &str, threads_count: u8) -> FileCollection {    

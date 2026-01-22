@@ -2,6 +2,7 @@ use std::{
     env,
 };
 use duplicates_resolver::resolve_duplicates;
+use utils::ScopeTimeLogger;
 
 // =============================================================================================
 
@@ -23,5 +24,6 @@ fn main() {
         .parse()
         .expect("Threads count must be a number");
 
+    let _scoped_logger = ScopeTimeLogger::new("Total execution time");
     resolve_duplicates(&path, threads_count);
 }
