@@ -1,6 +1,7 @@
 use std::{
     env,
 };
+use duplicates_resolver::resolve_duplicates;
 
 // =============================================================================================
 
@@ -22,5 +23,5 @@ fn main() {
         .parse()
         .expect("Threads count must be a number");
 
-    println!("Scanning (with {threads_count} threads) for duplicates in '{path}'");
+    resolve_duplicates(&path, threads_count);
 }

@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'duplicates_resolver'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=duplicates_resolver",
+                    "--package=duplicates_resolver"
+                ],
+                "filter": {
+                    "name": "duplicates_resolver",
+                    "kind": "bin"
+                }
+            },
+            "args": [".\\test_data\\camera\\camera - copy",
+                "--threads=4"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

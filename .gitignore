@@ -12,7 +12,8 @@ test_data/
 *.rlib
 
 # IDEs/editors
-.vscode/
+.vscode/*
+!.vscode/launch.json
 .idea/
 *.iml
 *.swp
