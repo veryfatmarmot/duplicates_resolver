@@ -1,5 +1,6 @@
 # Cargo / build
 target/
+output/
 test_data/
 **/*.rs.bk
 
