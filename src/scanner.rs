@@ -28,6 +28,7 @@ pub fn collect_duplicates(root_path: &str, threads_count: u8) -> DuplicatesRegis
     let root_path = root_path.to_string().replace("\\", "/");
     DuplicatesRegistry {
         root_path,
+        max_relative_path_len: get_max_relative_path_len(&duplicates),
         duplicates,
     }
 }
@@ -155,4 +156,19 @@ fn calculate_hash(path: &PathBuf) -> String {
 
     let hash_result = hasher.finalize();
     format!("{:x}", hash_result)
+}
+
+fn get_max_relative_path_len(duplicates: &HashMap<String, Vec<FileDescr>>) -> u16 {
+    let mut max_len: u16 = 0;
+
+    for files in duplicates.values() {
+        for descr in files {
+            let path_len = (descr.folder_path.len() + descr.file_name.len() + 1) as u16; // +1 for the slash
+            if path_len > max_len {
+                max_len = path_len;
+            }
+        }
+    }
+
+    max_len
 }

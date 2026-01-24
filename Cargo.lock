@@ -81,7 +81,6 @@ dependencies = [
 name = "duplicates_resolver"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "rayon",
  "serde",
  "serde_json",

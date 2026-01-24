@@ -76,5 +76,13 @@ fn parse_threads_count(args: &mut env::Args) -> u8 {
         .parse()
         .expect("Threads count must be a number");
 
+    if threads_count == 0 {
+        panic!("Threads count must be at least 1");
+    }
+
+    if threads_count > 124 {
+        panic!("Threads count cannot exceed 128");
+    }
+
     threads_count
 }

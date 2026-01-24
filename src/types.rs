@@ -12,5 +12,6 @@ pub type DuplicatesCollection = HashMap<String, Vec<FileDescr>>;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DuplicatesRegistry {
     pub root_path: String,
+    pub max_relative_path_len: u16,
     pub duplicates: DuplicatesCollection,
 }

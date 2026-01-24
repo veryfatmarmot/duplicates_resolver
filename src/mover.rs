@@ -12,6 +12,10 @@ pub fn move_duplicates(registry: DuplicatesRegistry, target_root: &str) {
         panic!("Target root already exists: {target_root}");
     }
 
+    if target_root.len() + 1 + registry.max_relative_path_len as usize > 260 {
+        panic!("The resulting path length exceeds the maximum allowed length of 260 characters");
+    }
+
     // Check if source and target paths overlap
     let target_canonical = target_path.canonicalize().unwrap_or_else(|_| target_path.to_path_buf());
     let source_canonical = source_path.canonicalize().unwrap_or_else(|_| source_path.to_path_buf());
