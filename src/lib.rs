@@ -18,9 +18,8 @@ type DuplicatesCollection = HashMap<String, Vec<FileDescr>>;
 
 #[derive(Debug, Serialize)]
 struct FileDescr {
-    relative_folder_path: String,
+    folder_path: String,
     file_name: String,
-    hash: String,
 }
 
 // =============================================================================================
@@ -30,14 +29,15 @@ pub fn resolve_duplicates(root_path: &str, json_path: &str, threads_count: u8) {
 
     let collection = collect_files(root_path, threads_count);
     let total_files_count = collection.values().map(|v| v.len()).sum::<usize>();
+    println!("Total files count:{total_files_count}");
 
-    let collection: DuplicatesCollection = collect_duplicates(collection, root_path, threads_count);
-    let duplicates_count = collection.len();
+    let collection: DuplicatesCollection = collect_duplicates(collection, threads_count);
+    println!(
+        "Duplicates count: {} - saved to {json_path}",
+        collection.len()
+    );
 
     save_to_json(collection, json_path);
-
-    println!("Total files count:{total_files_count}");
-    println!("Duplicates count: {duplicates_count} - saved to {json_path}");
 }
 
 fn create_tread_pool(threads_count: u8) -> rayon::ThreadPool {
@@ -84,49 +84,56 @@ fn collect_files(root_path: &str, threads_count: u8) -> FileCollection {
     collection
 }
 
-fn collect_duplicates(
-    collection: FileCollection,
-    root_path: &str,
-    threads_count: u8,
-) -> DuplicatesCollection {
+fn collect_duplicates(collection: FileCollection, threads_count: u8) -> DuplicatesCollection {
     let pool = create_tread_pool(threads_count);
     let collection: DuplicatesCollection = pool.install(|| {
         collection
             .into_iter()
             .filter(|(_, paths)| paths.len() > 1)
             .par_bridge()
-            .map(|(_, paths)| extract_duplicate_descr(paths, root_path))
-            .collect()
+            .map(|(_, paths)| extract_duplicate_descr(paths))
+            .reduce(DuplicatesCollection::new, |mut acc, mut element| {
+                for (key, descrs) in &mut element {
+                    acc.entry(key.clone())
+                        .or_insert_with(Vec::new)
+                        .append(descrs);
+                }
+                acc
+            })
     });
 
     collection
 }
 
-fn extract_duplicate_descr(paths: HashSet<PathBuf>, root_path: &str) -> (String, Vec<FileDescr>) {
-    let mut duplicates: Vec<FileDescr> = paths
+fn extract_duplicate_descr(paths: HashSet<PathBuf>) -> DuplicatesCollection {
+    let mut duplicates: Vec<(String, FileDescr)> = paths
         .into_iter()
         .map(|path| {
             let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            let relative_folder_path = path
-                .parent()
-                .unwrap()
-                .strip_prefix(root_path)
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
-            let relative_folder_path = relative_folder_path.replace('\\', "/");
+            let folder_path = path.parent().unwrap().to_string_lossy().to_string();
+            let folder_path = folder_path.replace('\\', "/");
             let hash = calculate_hash(&path);
-            FileDescr {
-                relative_folder_path,
-                file_name,
+            (
                 hash,
-            }
+                FileDescr {
+                    folder_path,
+                    file_name,
+                },
+            )
         })
         .collect();
 
-    duplicates.sort_by(|a, b| a.relative_folder_path.cmp(&b.relative_folder_path));
+    duplicates.sort_by(|a, b| a.1.folder_path.cmp(&b.1.folder_path));
 
-    (duplicates[0].file_name.clone(), duplicates)
+    let mut result = DuplicatesCollection::new();
+    for (hash, file_descr) in duplicates.drain(..) {
+        result
+            .entry(hash.clone())
+            .or_insert_with(Vec::new)
+            .push(file_descr);
+    }
+
+    result
 }
 
 fn save_to_json(collection: DuplicatesCollection, save_path: &str) {
