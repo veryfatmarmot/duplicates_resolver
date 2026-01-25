@@ -67,10 +67,30 @@ pub fn move_duplicates(registry: DuplicatesRegistry, target_root: &str) {
             ));
         }
     }
+
+    println!("All duplicates have been moved to: '{target_root}'");
+    println!("Removing empty folders from source path: '{source_path:?}'");
+    remove_empty_folders(source_path);
 }
 
 fn src_path_from_descr(registry_root: &str, descr: &FileDescr) -> PathBuf {
     PathBuf::from(registry_root)
         .join(&descr.folder_path)
         .join(&descr.file_name)
+}
+
+fn remove_empty_folders(root_path: &Path) {
+    for entry in fs::read_dir(root_path).expect("Failed to read directory") {
+        let entry = entry.expect("Failed to get directory entry");
+        let path = entry.path();
+
+        if path.is_dir() {
+            remove_empty_folders(&path);
+
+            // After removing subfolders, check if the current folder is empty
+            if fs::read_dir(&path).expect("Failed to read directory").next().is_none() {
+                fs::remove_dir(&path).expect("Failed to remove empty directory");
+            }
+        }
+    }
 }
