@@ -1,7 +1,7 @@
 use duplicates_resolver::{
     json_helper::{read_from_json, save_to_json},
     mover::move_duplicates,
-    scanner::collect_duplicates,
+    scanner::{prescan_duplicates, collect_duplicates},
     types::*,
 };
 use std::env;
@@ -16,7 +16,9 @@ Usage:
     the duplicate are sourted in the lexicographical order by their folder paths    
 2. move <json_input_path> <dst_path>
     moves the duplicates found in the JSON report to the destination path
-    the first path in the duplicates list is considered the original and is not moved";
+    the first path in the duplicates list is considered the original and is not moved
+3. prescan <scan_path>
+    prescans the path and shows estimated number of duplicates without building the JSON report + some additional info";
 
 // =============================================================================================
 
@@ -31,6 +33,7 @@ fn main() {
     let _scoped_time_logger = ScopeTimeLogger::new("Total execution time");
 
     match command.as_str() {
+        "prescan" => run_prescan_command(&mut args),
         "scan" => run_scan_command(&mut args),
         "move" => run_move_command(&mut args),
         _ => panic!("\nUnknown command: {command}\n{USAGE}\n"),
@@ -62,6 +65,14 @@ fn run_move_command(args: &mut env::Args) {
     let duplicates: DuplicatesRegistry = read_from_json(&json_path);
 
     move_duplicates(duplicates, &path);
+}
+
+fn run_prescan_command(args: &mut env::Args) {
+    let path = args
+        .next()
+        .expect(&format!("\nNo source path provided.\n{USAGE}\n"));
+    
+    prescan_duplicates(&path);
 }
 
 fn parse_threads_count(args: &mut env::Args) -> u8 {
