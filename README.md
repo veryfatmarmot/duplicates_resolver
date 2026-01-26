@@ -18,12 +18,12 @@ Preview duplicates without generating full report. Shows count and statistics.
 
 ### scan - Find duplicates
 ```bash
-duplicates_resolver scan <path> <output.json> --threads=<n>
+duplicates_resolver scan <path> <output.json> [--threads=<n>]
 ```
 Scan directory for duplicates and save results to JSON.
 - `<path>` - Directory to scan
 - `<output.json>` - Report output file
-- `--threads=<n>` - Thread count (1-128, default: CPU cores)
+- `[--threads=<n>]` - Thread count (1-128, default: CPU cores)
 
 Files sorted lexicographically by folder path in results.
 

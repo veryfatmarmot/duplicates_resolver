@@ -12,10 +12,11 @@ use utils::ScopeTimeLogger;
 
 const USAGE: &str = "
 Usage:
-1. scan <scan_path> <json_output_path> --threads=<count>
+1. scan <scan_path> <json_output_path> [--threads=<count>]
     scans the path for the duplicates and builds the JSON report
-    the duplicate are sourted in the lexicographical order by their folder paths    
-2. move <json_input_path> <dst_path> --no-path-len-check
+    the duplicate are sourted in the lexicographical order by their folder paths
+    --threads is optional (defaults to CPU core count)
+2. move <json_input_path> <dst_path> [--no-path-len-check]
     moves the duplicates found in the JSON report to the destination path
     the first path in the duplicates list is considered the original and is not moved
     --no-path-len-check flag disables the max path length check (may lead to errors on older Windows)
@@ -98,24 +99,35 @@ fn run_prescan_command(args: &mut env::Args) -> Result<()> {
 }
 
 fn parse_threads_count(args: &mut env::Args) -> Result<u8> {
-    let threads_arg = args
-        .next()
-        .context(format!("\nNo threads count provided.\n{USAGE}\n"))?;
+    let threads_count = if let Some(threads_arg) = args.next() {
+        let count: u8 = threads_arg
+            .trim()
+            .strip_prefix("--threads=")
+            .context(format!(
+                "\nInvalid threads argument format. Use --threads=<count>\n{USAGE}\n"
+            ))?
+            .parse()
+            .context("Threads count must be a number")?;
 
-    let threads_count: u8 = threads_arg
-        .trim()
-        .strip_prefix("--threads=")
-        .context(format!("\nNo threads count provided\n{USAGE}\n"))?
-        .parse()
-        .context("Threads count must be a number")?;
+        if count == 0 {
+            return Err(anyhow!("Threads count must be at least 1"));
+        }
 
-    if threads_count == 0 {
-        return Err(anyhow!("Threads count must be at least 1"));
-    }
+        if count > 128 {
+            return Err(anyhow!("Threads count cannot exceed 128"));
+        }
 
-    if threads_count > 124 {
-        return Err(anyhow!("Threads count cannot exceed 128"));
-    }
+        count
+    } else {
+        // Default to number of CPU cores
+        let cpu_count = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(128) as u8;
+
+        println!("Using {} threads (CPU core count)", cpu_count);
+        cpu_count
+    };
 
     Ok(threads_count)
 }
