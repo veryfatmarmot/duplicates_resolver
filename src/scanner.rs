@@ -1,4 +1,5 @@
 use crate::types::{DuplicatesCollection, DuplicatesRegistry, FileDescr};
+use anyhow::{Context, Result};
 use chrono;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -18,7 +19,7 @@ type FileCollection = HashMap<u64, HashSet<PathBuf>>;
 
 // =============================================================================================
 
-pub fn prescan_duplicates(root_path: &str) {
+pub fn prescan_duplicates(root_path: &str) -> Result<()> {
     println!(
         "[{}] Prescanning for duplicates in '{root_path}'",
         chrono::Local::now().format("%H:%M:%S")
@@ -26,7 +27,7 @@ pub fn prescan_duplicates(root_path: &str) {
 
     type PrescanResult = HashMap<String, (usize, u64)>; // (count, total size)
 
-    let collection = collect_files(root_path, 4); // Using 4 threads for prescan
+    let collection = collect_files(root_path, 4)?; // Using 4 threads for prescan
     let total_files_count = collection.values().map(|v| v.len()).sum::<usize>();
     println!("Total files count:{total_files_count}");
     println!(
@@ -34,14 +35,11 @@ pub fn prescan_duplicates(root_path: &str) {
         collection.len()
     );
 
-    let file_types: PrescanResult = collection 
+    let file_types: PrescanResult = collection
         .into_iter()
-        .flat_map(|(file_size, paths)|{
-            paths.into_iter().map(move |path| (file_size, path))
-        })
+        .flat_map(|(file_size, paths)| paths.into_iter().map(move |path| (file_size, path)))
         .fold(PrescanResult::new(), |mut acc, (file_size, path)| {
-            let ext: String = match path.extension()
-            {
+            let ext: String = match path.extension() {
                 Some(ext) => ext.to_string_lossy().to_string().to_lowercase(),
                 None => "___".to_string(),
             };
@@ -63,27 +61,30 @@ pub fn prescan_duplicates(root_path: &str) {
             (total_size as f64) / ((1024 * 1024 * 1024) as f64)
         );
     }
+
+    Ok(())
 }
 
-pub fn collect_duplicates(root_path: &str, threads_count: u8) -> DuplicatesRegistry {
+pub fn collect_duplicates(root_path: &str, threads_count: u8) -> Result<DuplicatesRegistry> {
     println!(
         "[{}] Scanning (with {threads_count} threads) for duplicates in '{root_path}'",
         chrono::Local::now().format("%H:%M:%S")
     );
 
-    let collection = collect_files(root_path, threads_count);
+    let collection = collect_files(root_path, threads_count).context("Failed to collect files")?;
     let total_files_count = collection.values().map(|v| v.len()).sum::<usize>();
     println!("Total files count:{total_files_count}");
 
-    let duplicates: DuplicatesCollection = extract_duplicates(collection, root_path, threads_count);
+    let duplicates: DuplicatesCollection = extract_duplicates(collection, root_path, threads_count)
+        .context("Failed to extract duplicates")?;
     println!("Duplicates count: {}", duplicates.len());
 
     let root_path = root_path.to_string().replace("\\", "/");
-    DuplicatesRegistry {
+    Ok(DuplicatesRegistry {
         root_path,
         max_relative_path_len: get_max_relative_path_len(&duplicates),
         duplicates,
-    }
+    })
 }
 
 fn create_thread_pool(threads_count: u8) -> rayon::ThreadPool {
@@ -93,13 +94,19 @@ fn create_thread_pool(threads_count: u8) -> rayon::ThreadPool {
         .expect("Failed to build thread pool")
 }
 
-fn collect_files(root_path: &str, threads_count: u8) -> FileCollection {
-    let extract_file_info = |entry: Result<walkdir::DirEntry, walkdir::Error>| -> (u64, PathBuf) {
-        let entry = entry.expect("Failed to get WalkDir entry");
-        let metadata = entry.metadata().expect("Failed to get metadata");
-        let file_size = metadata.len();
-        (file_size, entry.into_path())
-    };
+fn collect_files(root_path: &str, threads_count: u8) -> Result<FileCollection> {
+    let extract_file_info =
+        |entry: Result<walkdir::DirEntry, walkdir::Error>| -> Result<(u64, PathBuf)> {
+            let entry = entry.context("Failed to get WalkDir entry")?;
+            let metadata = entry.metadata().with_context(|| {
+                format!(
+                    "Failed to get metadata for '{}'",
+                    entry.path().to_string_lossy().as_ref()
+                )
+            })?;
+            let file_size = metadata.len();
+            Ok((file_size, entry.into_path()))
+        };
 
     let pool = create_thread_pool(threads_count);
     let collection: FileCollection = pool.install(|| {
@@ -115,6 +122,13 @@ fn collect_files(root_path: &str, threads_count: u8) -> FileCollection {
             })
             .par_bridge()
             .map(extract_file_info)
+            .filter_map(|res| match res {
+                Ok(value) => Some(value),
+                Err(err) => {
+                    eprint!("Error processing file: {err}");
+                    return None;
+                }
+            })
             .filter(|(file_size, _)| *file_size > 0)
             .fold_with(FileCollection::new(), |mut acc, (key, value)| {
                 acc.entry(key).or_insert_with(HashSet::new).insert(value);
@@ -128,14 +142,14 @@ fn collect_files(root_path: &str, threads_count: u8) -> FileCollection {
             })
     });
 
-    collection
+    Ok(collection)
 }
 
 fn extract_duplicates(
     collection: FileCollection,
     root_path: &str,
     threads_count: u8,
-) -> DuplicatesCollection {
+) -> Result<DuplicatesCollection> {
     let collection: FileCollection = collection
         .into_iter()
         .filter(|(_, paths)| paths.len() > 1)
@@ -143,12 +157,15 @@ fn extract_duplicates(
 
     let total_files: usize = collection.values().map(|paths| paths.len()).sum();
     let progress_bar = ProgressBar::new(total_files as u64);
-    progress_bar.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} Computing hashes [{bar:40.cyan/blue}] {pos}/{len} ({eta_precise})")
-            .expect("Failed to set progress style")
-            .progress_chars("#>-"),
-    );
+    if let Ok(style) = ProgressStyle::default_bar()
+        .template(
+            "{spinner:.green} Computing hashes [{bar:40.cyan/blue}] {pos}/{len} ({eta_precise})",
+        )
+        .and_then(|s| Ok(s.progress_chars("#>-")))
+        .map_err(|e| eprintln!("Failed to set progress style: {e}"))
+    {
+        progress_bar.set_style(style);
+    };
     let progress_bar: Arc<Mutex<ProgressBar>> = Arc::new(Mutex::new(progress_bar));
 
     let pool = create_thread_pool(threads_count);
@@ -156,14 +173,19 @@ fn extract_duplicates(
         collection
             .into_iter()
             .par_bridge()
-            .map(|(_, paths)| {
+            .filter_map(|(_, paths)| {
                 let file_count = paths.len();
-                let result = extract_duplicate_descr(paths, root_path);
                 match progress_bar.lock() {
                     Ok(ref pb) => pb.inc(file_count as u64),
                     Err(_) => panic!("Failed to lock progress bar"),
                 }
-                result
+                match extract_duplicate_descr(paths, root_path) {
+                    Ok(value) => Some(value),
+                    Err(err) => {
+                        eprintln!("Error extracting duplicate descriptions: {err}");
+                        None
+                    }
+                }
             })
             .reduce(DuplicatesCollection::new, |mut acc, mut element| {
                 for (key, descrs) in &mut element {
@@ -175,37 +197,65 @@ fn extract_duplicates(
             })
     });
 
+    //remove records with less than 2 files
+    let collection = collection
+        .into_iter()
+        .filter(|(_, descrs)| descrs.len() > 1)
+        .collect();
+
     match progress_bar.lock() {
         Ok(ref pb) => pb.finish_with_message("All duplicates processed"),
         Err(_) => panic!("Failed to lock progress bar"),
     }
 
-    collection
+    Ok(collection)
 }
 
-fn extract_duplicate_descr(paths: HashSet<PathBuf>, root_path: &str) -> DuplicatesCollection {
-    let mut duplicates: Vec<(String, FileDescr)> = paths
-        .into_iter()
-        .map(|path| {
-            let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            let folder_path = path
-                .parent()
-                .unwrap()
-                .strip_prefix(root_path)
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
-            let folder_path = folder_path.replace('\\', "/");
-            let hash = calculate_hash(&path);
-            (
-                hash,
-                FileDescr {
-                    folder_path,
-                    file_name,
-                },
-            )
-        })
-        .collect();
+fn extract_duplicate_descr(
+    paths: HashSet<PathBuf>,
+    root_path: &str,
+) -> Result<DuplicatesCollection> {
+    let process_file = |path: PathBuf| -> Option<(String, FileDescr)> {
+        let path_str = path.to_string_lossy().to_string();
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .or_else(|| {
+                eprintln!("Failed to get file name for path '{path_str}'");
+                None
+            })?;
+
+        let folder_path: String = path
+            .parent()
+            .or_else(|| {
+                eprintln!("Failed to get parent folder for path '{path_str}'");
+                return None;
+            })?
+            .strip_prefix(root_path)
+            .map_err(|_| {
+                eprintln!("Failed to strip root_path '{root_path}' from '{path_str}'");
+            })
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        let hash = calculate_hash(&path)
+            .map_err(|err| {
+                eprintln!("Failed to calculate hash of a file: {err}");
+            })
+            .ok()?;
+
+        Some((
+            hash,
+            FileDescr {
+                folder_path,
+                file_name,
+            },
+        ))
+    };
+
+    let mut duplicates: Vec<(String, FileDescr)> =
+        paths.into_iter().filter_map(process_file).collect();
 
     duplicates.sort_by(|a, b| a.1.folder_path.cmp(&b.1.folder_path));
 
@@ -217,18 +267,22 @@ fn extract_duplicate_descr(paths: HashSet<PathBuf>, root_path: &str) -> Duplicat
             .push(file_descr);
     }
 
-    result
+    Ok(result)
 }
 
-fn calculate_hash(path: &PathBuf) -> String {
-    let mut file = File::open(path).expect("Failed to open file for hashing");
+fn calculate_hash(path: &PathBuf) -> Result<String> {
+    let mut file = File::open(path).context(format!(
+        "Failed to open file for hashing '{:?}'",
+        path.to_string_lossy()
+    ))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 8192];
 
     loop {
-        let bytes_read = file
-            .read(&mut buffer)
-            .expect("Failed to read file for hashing");
+        let bytes_read = file.read(&mut buffer).context(format!(
+            "Failed to read file for hashing '{:?}'",
+            path.to_string_lossy()
+        ))?;
         if bytes_read == 0 {
             break;
         }
@@ -236,7 +290,7 @@ fn calculate_hash(path: &PathBuf) -> String {
     }
 
     let hash_result = hasher.finalize();
-    format!("{:x}", hash_result)
+    Ok(format!("{:x}", hash_result))
 }
 
 fn get_max_relative_path_len(duplicates: &HashMap<String, Vec<FileDescr>>) -> u16 {
